@@ -1,0 +1,87 @@
+name: CICD Workflow Deploy
+
+run-name: "Run Workflow: ${{ github.ref_name }}"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+      - release/**
+      - hotfix/**
+    tags:
+      - '*'
+
+jobs:
+  init-workflow:
+    name: Initial Workflow
+    runs-on: ${{ vars.RUNNER_NONPRD_LABEL }}
+    steps:
+      - name: Initial Workflow
+        id: init-workflow
+        uses: nxz-group/github-shared-workflows/.github/actions/init-workflow@main
+        with:
+          runner-nonprd: ${{ vars.RUNNER_NONPRD_LABEL }}
+          runner-prd: ${{ vars.RUNNER_PRD_LABEL }}
+    outputs:
+      environment: ${{ steps.init-workflow.outputs.environment }}
+      runner: ${{ steps.init-workflow.outputs.runner }}
+      image-tag: ${{ steps.init-workflow.outputs.image-tag }}
+
+  validate:
+    name: Validate
+    needs:
+      - init-workflow
+    runs-on: ${{ needs.init-workflow.outputs.runner }}
+    steps:
+      - name: Commitlint
+        uses: nxz-group/github-shared-workflows/.github/actions/commitlint@main
+      - name: Validate Java
+        if: ${{ !startsWith(github.event.ref, 'refs/tags/v') }}
+        uses: nxz-group/github-shared-workflows/.github/actions/validate-java@main
+        with:
+          java-version: 17
+          maven-version: '3.8.7'
+          unit-test-enabled: true
+          java-format-enabled: true
+
+  deploy:
+    name: Deploy Service
+    needs:
+      - init-workflow
+      - validate
+    runs-on: ${{ needs.init-workflow.outputs.runner }}
+    environment: ${{ needs.init-workflow.outputs.environment }}
+    steps:
+      - name: Build and Push Image
+        uses: nxz-group/github-shared-workflows/.github/actions/build-push-image-to-ecr@main
+        with:
+          image-tag: ${{ needs.init-workflow.outputs.image-tag }}
+          ecr-repository: ${{ vars.ECR_REPOSITORY }}
+          push-image: true
+      - name: Update Image Tag
+        uses: nxz-group/github-shared-workflows/.github/actions/update-image-tag@main
+        with:
+          argocd-repo: ${{ vars.ARGOCD_REPOSITORY }}
+          image-tag: ${{ needs.init-workflow.outputs.image-tag }}
+          argocd-configs-path: ${{ vars.ARGOCD_CONFIG_PATH }}
+          environment: ${{ needs.init-workflow.outputs.environment }}
+          app-id: ${{ secrets.APP_ID }}
+          app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+  notify:
+    name: Notification
+    if: always()
+    needs:
+      - init-workflow
+      - deploy
+    runs-on: ${{ needs.init-workflow.outputs.runner }}
+    permissions:
+      actions: read
+    steps:
+      - name: Notify Slack
+        uses: nxz-group/github-shared-workflows/.github/actions/slack-notification@main
+        with:
+          slack-webhook: ${{ secrets.SLACK_WEBHOOK }}
+          slack-channel: ${{ vars.SLACK_CHANNEL }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,60 @@
+name: CICD Workflow Feature
+
+on: 
+  push:
+    branches:
+      - feature/**
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ${{ vars.RUNNER_NONPRD_LABEL }}
+    steps:
+      - name: Commitlint
+        uses: nxz-group/github-shared-workflows/.github/actions/commitlint@main
+      - name: Validate Java
+        uses: nxz-group/github-shared-workflows/.github/actions/validate-java@main
+        with:
+          java-version: 17
+          maven-version: '3.8.7'
+          unit-test-enabled: true
+          java-format-enabled: true
+
+  build:
+    name: Build Code
+    needs:
+      - validate
+    runs-on: ${{ vars.RUNNER_NONPRD_LABEL }}
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Generate Short Sha
+        uses: benjlevesque/short-sha@v2.2
+        id: short-sha
+        with:
+          length: 8
+      - name: Build Application
+        uses: nxz-group/github-shared-workflows/.github/actions/build-push-image-to-ecr@main
+        with:
+          image-tag: feat-${{ steps.short-sha.outputs.sha }}-${{ github.run_number }}-${{ github.run_attempt }}
+          ecr-repository: ${{ vars.ECR_REPOSITORY }}
+          push-image: false
+          
+  notify:
+    name: Notification
+    if: always()
+    needs:
+      - validate
+      - build
+    runs-on: ${{ vars.RUNNER_NONPRD_LABEL }}
+    permissions:
+      actions: read
+    steps:
+      - name: Notify Slack
+        uses: nxz-group/github-shared-workflows/.github/actions/slack-notification@main
+        with:
+          slack-webhook: ${{ secrets.SLACK_WEBHOOK }}
+          slack-channel: ${{ vars.SLACK_CHANNEL }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
