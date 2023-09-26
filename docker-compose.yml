@@ -1,0 +1,64 @@
+version: '3'
+services:
+#  postgres:
+#    container_name: sweep_manage_db
+#    image: postgres:14.5
+#    restart: always
+#    ports:
+#      - "5432:5432"
+#    environment:
+#      - POSTGRES_USER=postgres
+#      - POSTGRES_PASSWORD=postgres
+#      - POSTGRES_DB=sweep_manage_db
+#
+#  postgres2:
+#    container_name: sweep_process_db
+#    image: postgres:14.5
+#    restart: always
+#    ports:
+#      - "5433:5432"
+#    environment:
+#      - POSTGRES_USER=postgres
+#      - POSTGRES_PASSWORD=postgres
+#      - POSTGRES_DB=sweep_process_db
+#
+#  postgres3:
+#    container_name: sweep_consumer_db
+#    image: postgres:14.5
+#    restart: always
+#    ports:
+#      - "5434:5432"
+#    environment:
+#      - POSTGRES_USER=postgres
+#      - POSTGRES_PASSWORD=postgres
+#      - POSTGRES_DB=sweep_consumer_db
+
+  app:
+    container_name: sweep-manage-service
+    image: sweep-manage-service
+    build: ./
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.local
+    depends_on:
+      - collector
+    environment:
+      - OTEL_SERVICE_NAME=fireblocks-sweep-manage-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317
+      - OTEL_LOGS_EXPORTER=otlp
+
+  collector:
+    container_name: opentelemetry-collector-contrib
+    image: otel/opentelemetry-collector-contrib:0.51.0
+    volumes:
+      - ./otel-config.yaml:/otel-config.yaml
+    command: [ "--config=/otel-config.yaml" ]
+    ports:
+      - "1888:1888"
+      - "8888:8888"
+      - "8889:8889"
+      - "13133:13133"
+      - "4317:4317"
+      - "4318:4318"
+      - "55679:55679"
